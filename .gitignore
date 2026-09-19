@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+*.exe
+*.zip
+settings.json
+*.log
+.env
+.env.*
+work/
+screenshots/

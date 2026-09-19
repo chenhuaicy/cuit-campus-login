@@ -1,0 +1,6 @@
+图标使用内置 image_gen 工具生成，再转换为 Windows 多尺寸 ICO。
+设计：蓝色渐变、展开的书页与双翼、Wi-Fi 信号，体现校园学习与网络连接。
+这是校园网助手的原创图标，不是学校官方校徽。
+
+最终生成提示词：
+Use case: logo-brand. Asset type: final Windows desktop application icon for an unofficial Chengdu University of Information Technology campus network auto-login helper, not a presentation or mockup. Primary request: a beautiful distinctive CUIT-inspired academic technology icon that is legible at 32 pixels. Single centered emblem: a bold white abstract open-book / upward-wing mark with a simple Wi-Fi signal integrated above it, suggesting a university, information technology and connected campus. Use deep university blue and luminous cyan, a restrained smooth gradient on one softly rounded square tile, crisp broad white shapes, polished flat dimensional finish with very subtle depth. Square 1024x1024 canvas, icon tile fills about 90% of canvas, genuine transparent background outside rounded tile. Straight-on orthographic, visually balanced, very clean, no thin details. No text, no letters, no tiny decorative circuitry, no official seal, no watermark, no additional icons, no surrounding mockup. Original related visual identity, not a replica of university seal.
