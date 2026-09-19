@@ -24,7 +24,7 @@ CONFIG = DATA / 'settings.json'
 CARRIERS = ('中国电信', '中国移动', '中国联通', '校园网')
 CLOSE_ACTIONS = ('最小化到右下角托盘（继续运行）', '退出程序（停止监测）')
 SUCCESS = re.compile(r'已连接网络|网络连接成功|认证成功|上网成功|您已成功登录')
-FAILURE = re.compile(r'密码错误|密码不正确|账号或密码|账户或密码|认证失败|账号不存在|用户不存在|余额不足|账号已停用')
+FAILURE = re.compile(r'密码错误|密码不正确|密码不匹配|账号或密码|账户或密码|用户名或密码|认证失败|登录失败|账号不存在|用户不存在|用户名不存在|余额不足|账号已停用')
 
 
 class Blob(ctypes.Structure):
@@ -282,6 +282,7 @@ class App:
         self.ui_actions = queue.Queue()
         self.tray = None
         self.tray_ready = threading.Event()
+        self.pending_notice = None
         scale = root.winfo_fpixels('1i') / 96
         root.title('成信大校园网助手 · 航空港')
         icon = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'campus-icon.ico'
@@ -303,7 +304,7 @@ class App:
         self.monitor = tk.BooleanVar(value=True)
         self.autostart = tk.BooleanVar(value=False)
         self.consent = tk.BooleanVar(value=False)
-        self.show = tk.BooleanVar(value=True)
+        self.show = tk.BooleanVar(value=False)
         self.close_action = tk.StringVar(value=CLOSE_ACTIONS[0])
         self.fields = []
         for label, variable in [('校园网账号', self.username), ('校园网密码', self.password)]:
@@ -318,7 +319,7 @@ class App:
         for label, variable in [('记住密码（仅当前 Windows 用户可解密）', self.remember),
                                 ('掉线后自动重连（每 30 秒检查）', self.monitor),
                                 ('Windows 登录后自动运行（需记住密码）', self.autostart),
-                                ('显示登录浏览器（首次使用建议勾选）', self.show),
+                                ('显示登录浏览器（仅排查问题时勾选）', self.show),
                                 ('我已阅读并同意校园网页面的免责声明及隐私协议', self.consent)]:
             cb = ttk.Checkbutton(frame, text=label, variable=variable)
             cb.pack(anchor='w', pady=2)
@@ -337,12 +338,15 @@ class App:
         ttk.Button(buttons, text='停止', command=self.stop.set).pack(side='left', padx=8)
         ttk.Button(buttons, text='退出程序', command=self.exit_app).pack(side='left')
         ttk.Button(buttons, text='清除保存信息', command=self.clear).pack(side='right')
-        self.status = tk.StringVar(value='请填写账号并选择运营商。首次运行会打开独立的 Edge 窗口。')
+        self.status = tk.StringVar(value='请填写账号并选择运营商。默认隐藏登录浏览器，认证失败会提醒。')
         ttk.Label(frame, textvariable=self.status, wraplength=int(510*scale), foreground='#12659b').pack(anchor='w', pady=4)
         self.log = tk.Text(frame, height=5, font=('Microsoft YaHei UI', 9), state='disabled', wrap='word')
         self.log.pack(fill='both', expand=True, pady=(8, 0))
         try:
             saved = load_settings()
+            # Older versions defaulted to visible login; migrate once to silent login.
+            if not saved.get('silent_login_version'):
+                saved['show'] = False
             for name in ('username', 'password', 'carrier', 'remember', 'monitor', 'autostart', 'consent', 'show', 'close_action'):
                 if name in saved:
                     getattr(self, name).set(saved[name])
@@ -423,6 +427,9 @@ class App:
                 self.report('托盘不可用，已恢复窗口。')
         while not self.events.empty():
             msg = self.events.get()
+            if isinstance(msg, tuple):
+                self.pending_notice = msg
+                continue
             self.status.set(msg)
             self.log.configure(state='normal')
             self.log.insert('end', time.strftime('%H:%M:%S ') + msg + '\n')
@@ -434,6 +441,12 @@ class App:
                 widget.configure(state='disabled' if running else ('readonly' if isinstance(widget, ttk.Combobox) else 'normal'))
             self.locked = running
         self.start_button.configure(state='disabled' if running else 'normal')
+        if self.pending_notice and not running and not self.closing:
+            title, text = self.pending_notice
+            self.pending_notice = None
+            self.show_window()
+            messagebox.showerror(title, text, parent=self.root)
+            self.fields[1].focus_set()
         if self.closing and not running:
             if self.tray is not None:
                 self.tray.stop()
@@ -463,6 +476,7 @@ class App:
         options = {name: getattr(self, name).get() for name in
                    ('username', 'password', 'carrier', 'remember', 'monitor', 'autostart', 'consent', 'show', 'close_action')}
         options['username'] = options['username'].strip()
+        options['silent_login_version'] = 1
         if not options['username'] or not options['password']:
             messagebox.showinfo('填写信息', '请填写你自己的校园网账号和密码。')
             return
@@ -508,10 +522,14 @@ class App:
                     self.report('连续 3 轮联网检测未通过，检查校园网认证页面…')
                     with sync_playwright() as pw:
                         result = login_session(pw, options, self.stop, self.report)
-                    if result in ('cancelled', 'rejected'):
+                    if result == 'rejected':
+                        self.report(('校园网认证失败', '学校认证页面提示登录失败，已停止自动重试。\n\n请检查账号、密码、运营商及套餐状态，修改后点击“保存并开始”。'))
+                        break
+                    if result == 'cancelled':
                         break
                     if result == 'unrecognized':
                         self.report('未识别到认证结果，已暂停自动提交；请打开显示登录浏览器后检查页面。')
+                        self.report(('未能完成校园网认证', '未能确认登录结果，已暂停自动提交。\n\n请检查账号密码；如仍失败，可勾选“显示登录浏览器”查看学校页面。'))
                         break
                     if result == 'browser_closed':
                         self.report('登录浏览器已关闭。' + ('后台监测继续运行，稍后重新检查网络。' if options['monitor'] else '本次登录已结束。'))
